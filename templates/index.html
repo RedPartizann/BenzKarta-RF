@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг АЗС России</title>
+    <!-- Бесплатные карты Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com" />
+    <script src="https://unpkg.com"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: Arial, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* Рекламный блок */
+        .adv-box {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 300px; height: 100px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px dashed #ff9800; border-radius: 8px;
+            z-index: 1000; display: flex; align-items: center;
+            justify-content: center; color: #666; font-weight: bold;
+        }
+
+        /* Форма отправки */
+        .form-popup { font-size: 14px; max-width: 250px; }
+        .form-popup input, .form-popup select, .form-popup button {
+            width: 100%; margin-top: 5px; padding: 5px; box-sizing: border-box;
+        }
+        .form-popup button { background: #4CAF50; color: white; border: none; cursor: pointer; }
+        
+        /* Карточка заправки */
+        .station-info img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
+        .like-btn { cursor: pointer; margin-right: 10px; background: #eee; border: none; padding: 2px 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <!-- Заглушка под рекламу -->
+    <div class="adv-box">
+        Место для вашей рекламы<br>(Рекламное окно)
+    </div>
+
+    <script>
+        // Генерируем случайный ID пользователя для сессии (замена авторизации на старте)
+        if(!localStorage.getItem('user_id')) {
+            localStorage.setItem('user_id', 'user_' + Math.random().toString(36).substr(2, 9));
+        }
+        const userId = localStorage.getItem('user_id');
+
+        // Инициализация карты по центру России
+        const map = L.map('map').setView([55.7558, 37.6173], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{lng}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Загрузка АЗС с сервера
+        async function loadStations() {
+            const res = await fetch('/api/stations');
+            const stations = await res.json();
+            
+            stations.forEach(st => {
+                const lastUpdate = st.updates[0]; // Самое свежее состояние
+                
+                let html = `<div class="station-info">
+                    <h3>${st.name}</h3>
+                    <p><b>Бензин:</b> ${lastUpdate.fuel_type}</p>
+                    <p><b>Цена:</b> ${lastUpdate.price} руб/л</p>
+                    <p><b>Очередь:</b> ${lastUpdate.queue}</p>
+                    <p><b>В канистры:</b> ${lastUpdate.canister}</p>
+                    <img src="${lastUpdate.photo_url}" />
+                    <br><br>
+                    <button class="like-btn" onclick="vote('${st.id}', '${lastUpdate.update_id}', 'like')">👍 Реально (${lastUpdate.likes})</button>
+                    <button class="like-btn" onclick="vote('${st.id}', '${lastUpdate.update_id}', 'dislike')">👎 Фейк (${lastUpdate.dislikes})</button>
+                    <hr>
+                    <button onclick="subscribe('${st.id}')" style="width:100%">👁️ В просматриваемое (Нужно 10 отчетов)</button>
+                </div>`;
+                
+                L.marker([st.lat, st.lng]).addTo(map).bindPopup(html);
+            });
+        }
+
+        // Клик по карте — создание новой точки/обновления
+        map.on('click', function(e) {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+
+            const formHtml = `
+                <form id="addForm" class="form-popup" enctype="multipart/form-data">
+                    <b>Добавить статус АЗС</b>
+                    <input type="hidden" name="user_id" value="${userId}">
+                    <input type="hidden" name="lat" value="${lat}">
+                    <input type="hidden" name="lng" value="${lng}">
+                    
+                    <input type="text" name="name" placeholder="Название (Напр: Лукойл)" required>
+                    <input type="text" name="fuel_type" placeholder="Какой бензин есть (АИ-95, ДТ)" required>
+                    <input type="number" name="price" step="0.01" placeholder="Цена за литр" required>
+                    
+                    <select name="queue">
+                        <option value="Нет очереди">Нет очереди</option>
+                        <option value="До 5 машин">До 5 машин</option>
+                        <option value="Большая очередь">Большая очередь</option>
+                    </select>
+
+                    <select name="canister">
+                        <option value="Разрешают">В канистры: Можно</option>
+                        <option value="Запрещено">В канистры: Нельзя</option>
+                    </select>
+
+                    <label style="font-size:11px; margin-top:5px; display:block;">Фото-подтверждение (Обязательно):</label>
+                    <input type="file" name="photo" accept="image/*" required>
+                    
+                    <button type="submit">Отправить данные</button>
+                </form>
+            `;
+
+            L.popup().setLatLng(e.latlng).setContent(formHtml).openOn(map);
+
+            // Обработка отправки формы
+            setTimeout(() => {
+                document.getElementById('addForm').onsubmit = async function(evt) {
+                    evt.preventDefault();
+                    const formData = new FormData(this);
+                    
+                    const response = await fetch('/api/add_update', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    
+                    if(response.ok) {
+                        alert(`Данные успешно обновлены! Всего ваших обновлений: ${result.updates_count}`);
+                        location.reload();
+                    } else {
+                        alert(result.detail);
+                    }
+                };
+            }, 100);
+        });
+
+        // Функция лайка/дизлайка для валидации данных сообществом
+        async function vote(stationId, updateId, type) {
+            const formData = new FormData();
+            formData.append('station_id', stationId);
+            formData.append('update_id', updateId);
+            formData.append('type', type);
+
+            const res = await fetch('/api/like', { method: 'POST', body: formData });
+            if(res.ok) { location.reload(); }
+        }
+
+        // Подписка на уведомления ("Просматриваемое")
+        async function subscribe(stationId) {
+            const formData = new FormData();
+            formData.append('user_id', userId);
+            formData.append('station_id', stationId);
+
+            const res = await fetch('/api/subscribe', { method: 'POST', body: formData });
+            const result = await res.json();
+            alert(result.detail || result.message);
+        }
+
+        loadStations();
+    </script>
+</body>
+</html>
