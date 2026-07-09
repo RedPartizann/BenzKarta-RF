@@ -7,9 +7,13 @@ import os
 
 app = FastAPI()
 
-# Вставляем данные из Шага 1 (на сервере их лучше скрыть в переменные окружения)
-SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "https://supabase.co"
+# Сервер сам возьмет данные из Environment Variables на Render
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Критические переменные окружения SUPABASE_URL или SUPABASE_KEY не настроены!")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 templates = Jinja2Templates(directory="templates")
