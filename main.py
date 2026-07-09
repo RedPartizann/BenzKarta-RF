@@ -8,8 +8,8 @@ import os
 app = FastAPI()
 
 # Вставляем данные из Шага 1 (на сервере их лучше скрыть в переменные окружения)
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "ТВОЙ_SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "ТВОЙ_SUPABASE_KEY")
+SUPABASE_URL = "https://supabase.co"
+SUPABASE_KEY = "https://supabase.co"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 templates = Jinja2Templates(directory="templates")
